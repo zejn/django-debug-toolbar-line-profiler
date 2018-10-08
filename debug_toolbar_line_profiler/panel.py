@@ -164,12 +164,17 @@ class ProfilingPanel(Panel):
 
     template = 'debug_toolbar_line_profiler/panels/profiling.html'
 
-    def _unwrap_closure_and_profile(self, func):
+    def _unwrap_closure_and_profile(self, func, added):
         if not hasattr(func, '__code__'):
             return
-        self.line_profiler.add_function(func)
+        if func in added:
+            return
+        else:
+            self.line_profiler.add_function(func)
+            added.add(func)
+
         for subfunc in getattr(func, 'profile_additional', []):
-            self._unwrap_closure_and_profile(subfunc)
+            self._unwrap_closure_and_profile(subfunc, added)
         if PY2:
             func_closure = func.func_closure
         else:
@@ -179,18 +184,19 @@ class ProfilingPanel(Panel):
             for cell in func_closure:
                 target = cell.cell_contents
                 if hasattr(target, '__code__'):
-                    self._unwrap_closure_and_profile(cell.cell_contents)
+                    self._unwrap_closure_and_profile(cell.cell_contents, added)
                 if inspect.isclass(target) and View in inspect.getmro(target):
                     for name, value in inspect.getmembers(target):
                         if name[0] != '_' and inspect.ismethod(value):
-                            self._unwrap_closure_and_profile(value)
+                            self._unwrap_closure_and_profile(value, added)
 
     def process_view(self, request, view_func, view_args, view_kwargs):
         self.view_func = view_func
         self.profiler = cProfile.Profile()
         args = (request,) + view_args
         self.line_profiler = LineProfiler()
-        self._unwrap_closure_and_profile(view_func)
+        added = set()
+        self._unwrap_closure_and_profile(view_func, added)
         signals.profiler_setup.send(sender=self,
                                     profiler=self.line_profiler,
                                     view_func=view_func,
